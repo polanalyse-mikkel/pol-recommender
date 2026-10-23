@@ -25,12 +25,13 @@ from recommender.models import (
     EditorialRecommender,
     RecommenderBase,
 )
+from recommender.models.nonpersonal import PopularityRecommender
 from recommender.schemas.recommendation_list import RecommendationList
 from recommender.utils import candidates, s3
-from recommender.utils.export import format_export_payload
+from recommender.utils.export import format_exo_export_payload, format_export_payload
 from recommender.utils.sanitizers import RecImpressionSanitizer
 
-INTERACTION_LOOKBACK_DAYS = 365
+INTERACTION_LOOKBACK_DAYS = 7  # 365
 CONTROL_GROUP_FRACTION = 0
 
 
@@ -51,6 +52,7 @@ def main() -> None:
             min_item_pv=1000,
             max_item_pv=100_000,
         ),
+        PopularityRecommender(),  # not this no?
     ]
 
     start_date = (
@@ -121,50 +123,51 @@ def main() -> None:
             "model_names": model_name_state,
         }
 
-    payload = format_export_payload(user_recommendations)
+    payload = format_exo_export_payload(user_recommendations)
     body = orjson.dumps(payload)
     with pc.connect() as conn:
         try:
-            # End active runs and their models
-            end_active_runs_and_models(conn)
-
-            # Insert new recommendation run
-            insert_recommendation_run(
-                conn,
-                run_id,
-                training_start=start_date,
-                training_end=end_date,
-                num_interactions=len(interactions),
-                verbose=True,
-            )
-
-            # Insert new models as active
-            insert_models(conn, models, run_id, verbose=True)
-
-            # Insert recommendation lists
-            insert_recommendation_lists(
-                conn,
-                user_recommendations,
-                user_states,
-                control_group_users,
-                run_id,
-                verbose=True,
-            )
-
-            # Expire old editorials
-            expire_old_editorials(conn)
-
-            # Activate newly used editorials
-            for model in models:
-                if isinstance(model, EditorialRecommender):
-                    activate_editorial(conn, model.editorial_id)
+            # # End active runs and their models
+            # end_active_runs_and_models(conn)
+            #
+            # # Insert new recommendation run
+            # insert_recommendation_run(
+            #     conn,
+            #     run_id,
+            #     training_start=start_date,
+            #     training_end=end_date,
+            #     num_interactions=len(interactions),
+            #     verbose=True,
+            # )
+            #
+            # # Insert new models as active
+            # insert_models(conn, models, run_id, verbose=True)
+            #
+            # # Insert recommendation lists
+            # insert_recommendation_lists(
+            #     conn,
+            #     user_recommendations,
+            #     user_states,
+            #     control_group_users,
+            #     run_id,
+            #     verbose=True,
+            # )
+            #
+            # # Expire old editorials
+            # expire_old_editorials(conn)
+            #
+            # # Activate newly used editorials
+            # for model in models:
+            #     if isinstance(model, EditorialRecommender):
+            #         activate_editorial(conn, model.editorial_id)
 
             # Upload to S3 for Steen
-            key = f"inbox/{run_id}.json"
+            key = f"inbox2/{run_id}.json"
             s3.upload_to_s3(key, body)
 
             # Commit transaction
-            conn.commit()
+            # conn.commit()
+            conn.rollback()
 
         except Exception as e:
             # Rollback on error
