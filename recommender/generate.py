@@ -31,7 +31,7 @@ from recommender.utils import candidates, s3
 from recommender.utils.export import format_exo_export_payload, format_export_payload
 from recommender.utils.sanitizers import RecImpressionSanitizer
 
-INTERACTION_LOOKBACK_DAYS = 7  # 365
+INTERACTION_LOOKBACK_DAYS = 365
 CONTROL_GROUP_FRACTION = 0
 
 
@@ -52,7 +52,7 @@ def main() -> None:
             min_item_pv=1000,
             max_item_pv=100_000,
         ),
-        PopularityRecommender(),  # not this no?
+        # PopularityRecommender(),
     ]
 
     start_date = (
