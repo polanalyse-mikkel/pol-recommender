@@ -124,50 +124,55 @@ def main() -> None:
         }
 
     payload = format_exo_export_payload(user_recommendations)
+    payload_legacy = format_export_payload(user_recommendations)
     body = orjson.dumps(payload)
+    body_legacy = orjson.dumps(payload_legacy)
     with pc.connect() as conn:
         try:
-            # # End active runs and their models
-            # end_active_runs_and_models(conn)
-            #
-            # # Insert new recommendation run
-            # insert_recommendation_run(
-            #     conn,
-            #     run_id,
-            #     training_start=start_date,
-            #     training_end=end_date,
-            #     num_interactions=len(interactions),
-            #     verbose=True,
-            # )
-            #
-            # # Insert new models as active
-            # insert_models(conn, models, run_id, verbose=True)
-            #
-            # # Insert recommendation lists
-            # insert_recommendation_lists(
-            #     conn,
-            #     user_recommendations,
-            #     user_states,
-            #     control_group_users,
-            #     run_id,
-            #     verbose=True,
-            # )
-            #
-            # # Expire old editorials
-            # expire_old_editorials(conn)
-            #
-            # # Activate newly used editorials
-            # for model in models:
-            #     if isinstance(model, EditorialRecommender):
-            #         activate_editorial(conn, model.editorial_id)
+            # End active runs and their models
+            end_active_runs_and_models(conn)
+
+            # Insert new recommendation run
+            insert_recommendation_run(
+                conn,
+                run_id,
+                training_start=start_date,
+                training_end=end_date,
+                num_interactions=len(interactions),
+                verbose=True,
+            )
+
+            # Insert new models as active
+            insert_models(conn, models, run_id, verbose=True)
+
+            # Insert recommendation lists
+            insert_recommendation_lists(
+                conn,
+                user_recommendations,
+                user_states,
+                control_group_users,
+                run_id,
+                verbose=True,
+            )
+
+            # Expire old editorials
+            expire_old_editorials(conn)
+
+            # Activate newly used editorials
+            for model in models:
+                if isinstance(model, EditorialRecommender):
+                    activate_editorial(conn, model.editorial_id)
 
             # Upload to S3 for Steen
             key = f"inbox2/{run_id}.json"
             s3.upload_to_s3(key, body)
 
+            # Upload to S3 for legacy system
+            key_legacy = f"inbox/{run_id}.json"
+            s3.upload_to_s3(key_legacy, body_legacy)
+
             # Commit transaction
-            # conn.commit()
-            conn.rollback()
+            conn.commit()
 
         except Exception as e:
             # Rollback on error
