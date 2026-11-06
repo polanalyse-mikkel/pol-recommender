@@ -1,56 +1,107 @@
 # Recommender
 
-Run as
+## Secrets
+
+To setup secrets, create a copy of [`.env.template`](.env.template) as `.env` from recommender root.
 
 ```sh
-echo "y" | python main.py
+cp -r .env.template .env
 ```
 
-Run this on a schedule using cron as
+Fill out `.env` with secrets
 
 ```sh
-* * * * * source /path/to/venv/bin/activate && \
-    source /path/to/secrets/s3.sh && \
-    echo "y" | python /path/to/recommender/main.py
+AWS_ACCESS_KEY_ID=YOUR_AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=YOUR_AWS_SECRET_ACCESS_KEY
+AWS_S3_BUCKET=RECOMMENDATION_DATA_BUCKET_NAME
+POL_CONNECTOR_DSN=PSYCOPG_DSN_TO_REDSHIFT
 ```
 
-or use the setup helper script [`setup_crontab.sh`](/scripts/setup_crontab.sh).
+## Data
 
-## Setups
+Recommendation data is stored in a Redshift database. All except `layer_one_re`The schema is as follows:
 
-### Secrets
+```mermaid
+erDiagram
+    recommendation_editorials {
+        varchar editorial_id PK
+        varchar editorial_name
+        varchar editorial_description
+        varchar created_by
+        timestamptz created_at
+        timestamptz modified_at
+        timestamptz expire_at
+        varchar user_type
+        varchar editorial_status
+        super articles
+        super users
+        super user_filter
+    }
 
-To setup secrets, create a copy of [`secrets_template/`](secrets_template) as `secrets/` from recommender root.
+    recommendation_runs {
+        varchar run_id PK
+        timestamptz created_at
+        timestamptz ended_at
+        varchar run_status
+        date training_start
+        date training_end
+        int num_interactions
+        super config
+    }
 
-```sh
-cp -r secrets_template secrets
+    recommendation_models {
+        varchar model_id PK
+        varchar model_name
+        varchar model_category
+        varchar model_status
+        varchar model_hash
+        timestamptz created_at
+        timestamptz modified_at
+        timestamptz expire_at
+        varchar editorial_id FK
+        varchar run_id FK
+        super metadata
+    }
+
+    recommendation_lists {
+        varchar list_id PK
+        varchar sso_id
+        super recommendations
+        int num_recommendations
+        boolean is_control
+        super candidate_models
+        super candidate_model_names
+        varchar run_id FK
+        varchar model_id FK
+    }
+
+    layer_one_recommendations {
+        date event_date
+        timestamp event_datetime
+        timestamptz event_timestamptz
+        varchar sso_id
+        varchar hashed_session_id
+        varchar recommendation_model
+        boolean is_recommendation
+        varchar article_id
+        varchar event_type
+        boolean is_impression
+        boolean is_view
+        boolean is_click
+        varchar recommendation_spot
+        varchar article_pins
+        varchar parent_article
+        boolean is_pin_click
+        varchar visitor_type
+        varchar device_type
+        varchar pageview_id
+    }
+
+    recommendation_runs ||--o{ recommendation_models : has
+    recommendation_editorials ||--o{ recommendation_models : backs_editorial_model
+    recommendation_runs ||--o{ recommendation_lists : produces
+    recommendation_models ||--o{ recommendation_lists : selected_for
+
+    recommendation_lists }o..o{ layer_one_recommendations : "logical via sso_id"
+    recommendation_models }o..o{ layer_one_recommendations : "logical via model_name/recommendation_model"
 ```
-
-Fill out `s3.sh` with secrets
-
-```sh
-export AWS_ACCESS_KEY_ID=YOUR_ID
-export AWS_SECRET_ACCESS_KEY=YOUR_KEY
-```
-
-Then put them in env variables with
-
-```sh
-source secrets/s3.sh
-```
-
-Afterwards, check they're configured correctly using
-
-```sh
-echo $AWS_SECRET_ACCESS_KEY
-```
-
-Now you can put stuff into s3 buckets. This functionality should be updated in the future, but it works for now :)
-
-## Notes
-
-This project uses Polars for DataFrame handling. If you are unfamiliar with it, but familiar with pandas check out [this cheat sheet](https://franzdiebold.github.io/polars-cheat-sheet/Polars_cheat_sheet.pdf).
-
-## TODO
-
-* Rename column `run_timestamp` -> `run_timestamptz`.
