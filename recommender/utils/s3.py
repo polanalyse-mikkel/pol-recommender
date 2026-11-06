@@ -107,7 +107,7 @@ def delete_file_from_s3(key: str, bucket: str | None = None):
 def fetch_pending_recommendation_collections(
     bucket: str | None = None,
 ) -> list[tuple[str, bytes]]:
-    """Fetches all files under the 'pending/' prefix in the S3 bucket and returns their keys and contents."""
+    """Fetches all files under the 'inbox2/' prefix in the S3 bucket and returns their keys and contents."""
     bucket_name = _get_bucket(bucket)
     aws_access_key_id, aws_secret_access_key = _get_credentials()
     s3 = boto3.client(
@@ -117,8 +117,8 @@ def fetch_pending_recommendation_collections(
         region_name="eu-west-1",
     )
 
-    # List all files under the 'pending/' prefix
-    response = s3.list_objects_v2(Bucket=bucket_name, Prefix="pending/")
+    # List all files under the 'inbox2/' prefix
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix="inbox2/")
     collections = []
     if "Contents" in response:
         for item in response["Contents"]:
@@ -136,7 +136,7 @@ def fetch_pending_recommendation_collections(
 
 
 def delete_all_pending(bucket: str | None = None):
-    """Deletes all files under the 'pending/' prefix in the S3 bucket."""
+    """Deletes all files under the 'inbox2/' prefix in the S3 bucket."""
     bucket_name = _get_bucket(bucket)
     aws_access_key_id, aws_secret_access_key = _get_credentials()
     s3 = boto3.client(
@@ -146,15 +146,15 @@ def delete_all_pending(bucket: str | None = None):
         region_name="eu-west-1",
     )
 
-    # List all files under the 'pending/' prefix
-    response = s3.list_objects_v2(Bucket=bucket_name, Prefix="pending/")
+    # List all files under the 'inbox2/' prefix
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix="inbox2/")
     if "Contents" in response:
         for item in response["Contents"]:
             key = item["Key"]
             s3.delete_object(Bucket=bucket_name, Key=key)
             print(f"Deleted {key} from bucket {bucket_name}")
     else:
-        print("No files found under 'pending/' prefix.")
+        print("No files found under 'inbox2/' prefix.")
 
 
 if __name__ == "__main__":
