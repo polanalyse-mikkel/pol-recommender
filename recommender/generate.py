@@ -26,13 +26,14 @@ from recommender.models import (
     RecommenderBase,
 )
 from recommender.models.nonpersonal import PopularityRecommender
+from recommender.schemas.recommendation import Recommendation
 from recommender.schemas.recommendation_list import RecommendationList
 from recommender.utils import candidates, s3
 from recommender.utils.export import format_exo_export_payload, format_export_payload
 from recommender.utils.sanitizers import RecImpressionSanitizer
 
 INTERACTION_LOOKBACK_DAYS = 7  # 365
-CONTROL_GROUP_FRACTION = 0
+CONTROL_GROUP_FRACTION = 0.95
 
 
 class UserState(TypedDict):
@@ -43,87 +44,115 @@ class UserState(TypedDict):
 def main() -> None:
     random.seed(42)
     run_id = uuid.uuid4()
+    #
+    #     models: list[RecommenderBase] = [
+    #         CFRecommenderFiltered(
+    #             iterations=30,
+    #             min_user_pv=25,
+    #             max_user_pv=5000,
+    #             min_item_pv=1000,
+    #             max_item_pv=100_000,
+    #         ),
+    #         PopularityRecommender(),  # not this no?
+    #     ]
+    #
+    #     start_date = (
+    #         datetime.date.today() - datetime.timedelta(days=INTERACTION_LOOKBACK_DAYS)
+    #     ).isoformat()
+    #     end_date = datetime.date.today().isoformat()
+    #
+    #     # TODO: add retry logic
+    #     interactions = get_pageview_interactions(start_date, end_date)
+    #
+    #     users = get_users()
+    #     sanitizer = RecImpressionSanitizer()
+    #     candidate_list = candidates.get_last_month_candidates()
+    #
+    #     # init pending editorial models
+    #     editorial_recommendation_ids = list_pending_editorial_recommendations()
+    #     for edi_id, _ in editorial_recommendation_ids:
+    #         models.append(EditorialRecommender(edi_id))
+    #
+    #     # fit models
+    #     for model in models:
+    #         model.fit(interactions)
+    #
+    #     sampled_users = random.sample(users, int(len(users) * (1 - CONTROL_GROUP_FRACTION)))
+    #     sampled_users_set = set(sampled_users)
+    #     control_group_users = {
+    #         user_id for user_id in users if user_id not in sampled_users_set
+    #     }
+    #
+    #     user_recommendations: dict[str, RecommendationList] = {}
+    #     user_states: dict[str, UserState] = {}
+    #
+    #     # Generate recommendations for sampled users
+    #     for user_id in tqdm(
+    #         sampled_users, desc="Generating recommendations for sampled users"
+    #     ):
+    #         eligible_models = [model for model in models if model.can_recommend(user_id)]
+    #         if len(eligible_models) == 0:
+    #             user_recommendations[user_id] = RecommendationList(recommendations=[])
+    #             user_states[user_id] = {"model_ids": [], "model_names": []}
+    #             continue
+    #
+    #         model = random.choice(eligible_models)
+    #         recs = model.recommend(
+    #             user_id,
+    #             k=25,
+    #             candidates=candidate_list,
+    #             filter_already_liked_items=True,
+    #         )
+    #         recs = sanitizer(user_id, recs).top_k(5)
+    #         user_recommendations[user_id] = recs
+    #
+    #         model_id_state = [model.model_id for model in eligible_models]
+    #         model_name_state = [model.name for model in eligible_models]
+    #         user_states[user_id] = {
+    #             "model_ids": model_id_state,
+    #             "model_names": model_name_state,
+    #         }
+    #
+    #     # Create empty recommendation lists for control group users
+    #     for user_id in tqdm(control_group_users, desc="Creating control group entries"):
+    #         user_recommendations[user_id] = RecommendationList(recommendations=[])
+    #         eligible_models = [model for model in models if model.can_recommend(user_id)]
+    #         model_id_state = [model.model_id for model in eligible_models]
+    #         model_name_state = [model.name for model in eligible_models]
+    #         user_states[user_id] = {
+    #             "model_ids": model_id_state,
+    #             "model_names": model_name_state,
+    #         }
 
-    models: list[RecommenderBase] = [
-        CFRecommenderFiltered(
-            iterations=30,
-            min_user_pv=25,
-            max_user_pv=5000,
-            min_item_pv=1000,
-            max_item_pv=100_000,
-        ),
-        PopularityRecommender(),  # not this no?
-    ]
-
-    start_date = (
-        datetime.date.today() - datetime.timedelta(days=INTERACTION_LOOKBACK_DAYS)
-    ).isoformat()
-    end_date = datetime.date.today().isoformat()
-
-    # TODO: add retry logic
-    interactions = get_pageview_interactions(start_date, end_date)
-
-    users = get_users()
-    sanitizer = RecImpressionSanitizer()
-    candidate_list = candidates.get_last_month_candidates()
-
-    # init pending editorial models
-    editorial_recommendation_ids = list_pending_editorial_recommendations()
-    for edi_id, _ in editorial_recommendation_ids:
-        models.append(EditorialRecommender(edi_id))
-
-    # fit models
-    for model in models:
-        model.fit(interactions)
-
-    sampled_users = random.sample(users, int(len(users) * (1 - CONTROL_GROUP_FRACTION)))
-    sampled_users_set = set(sampled_users)
-    control_group_users = {
-        user_id for user_id in users if user_id not in sampled_users_set
-    }
-
-    user_recommendations: dict[str, RecommendationList] = {}
-    user_states: dict[str, UserState] = {}
-
-    # Generate recommendations for sampled users
-    for user_id in tqdm(
-        sampled_users, desc="Generating recommendations for sampled users"
-    ):
-        eligible_models = [model for model in models if model.can_recommend(user_id)]
-        if len(eligible_models) == 0:
-            user_recommendations[user_id] = RecommendationList(recommendations=[])
-            user_states[user_id] = {"model_ids": [], "model_names": []}
-            continue
-
-        model = random.choice(eligible_models)
-        recs = model.recommend(
-            user_id,
-            k=25,
-            candidates=candidate_list,
-            filter_already_liked_items=True,
+    anonymous_recommendations = RecommendationList(
+        recommendations=[
+            Recommendation(item_id=10523370, rank=1, model_id=uuid.uuid4())
+        ]
+    )
+    registered_recommendations = {
+        "c318ec0d-0440-4715-9be8-df71247a1ae9": RecommendationList(  # marcushvf+123@gmail.com
+            recommendations=[
+                Recommendation(item_id=10875718, rank=1, model_id=uuid.uuid4())
+            ]
         )
-        recs = sanitizer(user_id, recs).top_k(5)
-        user_recommendations[user_id] = recs
-
-        model_id_state = [model.model_id for model in eligible_models]
-        model_name_state = [model.name for model in eligible_models]
-        user_states[user_id] = {
-            "model_ids": model_id_state,
-            "model_names": model_name_state,
-        }
-
-    # Create empty recommendation lists for control group users
-    for user_id in tqdm(control_group_users, desc="Creating control group entries"):
-        user_recommendations[user_id] = RecommendationList(recommendations=[])
-        eligible_models = [model for model in models if model.can_recommend(user_id)]
-        model_id_state = [model.model_id for model in eligible_models]
-        model_name_state = [model.name for model in eligible_models]
-        user_states[user_id] = {
-            "model_ids": model_id_state,
-            "model_names": model_name_state,
-        }
-
-    payload = format_exo_export_payload(user_recommendations)
+    }
+    subscriber_recommendations = {
+        "c361aad1-4fc3-428b-9382-0219dc7848d6": RecommendationList(  # Pol digi abo
+            recommendations=[
+                Recommendation(item_id=10544486, rank=1, model_id=uuid.uuid4())
+            ]
+        ),
+        "9ee99905-3443-4455-bdb4-f5e44b9b5dba": RecommendationList(  # Jesper
+            recommendations=[
+                Recommendation(item_id=10890947, rank=1, model_id=uuid.uuid4())
+            ]
+        )
+    }
+    payload = format_exo_export_payload(
+        subscriber_recommendations=subscriber_recommendations,
+        registered_recommendations=registered_recommendations,
+        anonymous_recommendations=anonymous_recommendations,
+    )
     body = orjson.dumps(payload)
     with pc.connect() as conn:
         try:
