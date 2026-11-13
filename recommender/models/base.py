@@ -56,12 +56,10 @@ class RecommenderBase(ABC):
             metadata={"k": k, **kwargs},
         )
 
-    @abstractmethod
     def save(self, path: str) -> None:
         raise NotImplementedError()
 
     @classmethod
-    @abstractmethod
     def load(cls, path: str) -> "RecommenderBase":
         raise NotImplementedError()
 

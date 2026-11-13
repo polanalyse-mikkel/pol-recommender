@@ -25,7 +25,7 @@ from recommender.models import (
     EditorialRecommender,
     RecommenderBase,
 )
-from recommender.models.nonpersonal import PopularityRecommender
+from recommender.models.nonpersonal import PoolRecommender, PopularityRecommender
 from recommender.schemas.recommendation_list import RecommendationList
 from recommender.utils import candidates, s3
 from recommender.utils.export import format_exo_export_payload, format_export_payload
@@ -44,7 +44,7 @@ def main() -> None:
     random.seed(42)
     run_id = uuid.uuid4()
 
-    models: list[RecommenderBase] = [
+    subscriber_models: list[RecommenderBase] = [
         CFRecommenderFiltered(
             iterations=30,
             min_user_pv=25,
@@ -52,8 +52,10 @@ def main() -> None:
             min_item_pv=1000,
             max_item_pv=100_000,
         ),
+        PoolRecommender.from_food_list(),
         # PopularityRecommender(),
     ]
+    anonymous_model = PoolRecommender.from_food_list()
 
     start_date = (
         datetime.date.today() - datetime.timedelta(days=INTERACTION_LOOKBACK_DAYS)
@@ -70,11 +72,13 @@ def main() -> None:
     # init pending editorial models
     editorial_recommendation_ids = list_pending_editorial_recommendations()
     for edi_id, _ in editorial_recommendation_ids:
-        models.append(EditorialRecommender(edi_id))
+        subscriber_models.append(EditorialRecommender(edi_id))
 
     # fit models
-    for model in models:
+    for model in subscriber_models:
         model.fit(interactions)
+
+    anonymous_model.fit(interactions)
 
     sampled_users = random.sample(users, int(len(users) * (1 - CONTROL_GROUP_FRACTION)))
     sampled_users_set = set(sampled_users)
@@ -82,16 +86,18 @@ def main() -> None:
         user_id for user_id in users if user_id not in sampled_users_set
     }
 
-    user_recommendations: dict[str, RecommendationList] = {}
+    subscriber_recommendations: dict[str, RecommendationList] = {}
     user_states: dict[str, UserState] = {}
 
     # Generate recommendations for sampled users
     for user_id in tqdm(
         sampled_users, desc="Generating recommendations for sampled users"
     ):
-        eligible_models = [model for model in models if model.can_recommend(user_id)]
+        eligible_models = [
+            model for model in subscriber_models if model.can_recommend(user_id)
+        ]
         if len(eligible_models) == 0:
-            user_recommendations[user_id] = RecommendationList(recommendations=[])
+            subscriber_recommendations[user_id] = RecommendationList(recommendations=[])
             user_states[user_id] = {"model_ids": [], "model_names": []}
             continue
 
@@ -103,7 +109,7 @@ def main() -> None:
             filter_already_liked_items=True,
         )
         recs = sanitizer(user_id, recs).top_k(5)
-        user_recommendations[user_id] = recs
+        subscriber_recommendations[user_id] = recs
 
         model_id_state = [model.model_id for model in eligible_models]
         model_name_state = [model.name for model in eligible_models]
@@ -114,8 +120,10 @@ def main() -> None:
 
     # Create empty recommendation lists for control group users
     for user_id in tqdm(control_group_users, desc="Creating control group entries"):
-        user_recommendations[user_id] = RecommendationList(recommendations=[])
-        eligible_models = [model for model in models if model.can_recommend(user_id)]
+        subscriber_recommendations[user_id] = RecommendationList(recommendations=[])
+        eligible_models = [
+            model for model in subscriber_models if model.can_recommend(user_id)
+        ]
         model_id_state = [model.model_id for model in eligible_models]
         model_name_state = [model.name for model in eligible_models]
         user_states[user_id] = {
@@ -123,10 +131,18 @@ def main() -> None:
             "model_names": model_name_state,
         }
 
-    payload = format_exo_export_payload(user_recommendations)
-    payload_legacy = format_export_payload(user_recommendations)
+    # Generate anonymous recommendations
+    anonymous_recommendations = anonymous_model.recommend(None)
+
+    payload = format_exo_export_payload(
+        subscriber_recommendations=subscriber_recommendations,
+        anonymous_recommendations=anonymous_recommendations,
+    )
+    payload_legacy = format_export_payload(subscriber_recommendations)
     body = orjson.dumps(payload)
     body_legacy = orjson.dumps(payload_legacy)
+
+    all_models = subscriber_models + [anonymous_model]
     with pc.connect() as conn:
         try:
             # End active runs and their models
@@ -143,12 +159,12 @@ def main() -> None:
             )
 
             # Insert new models as active
-            insert_models(conn, models, run_id, verbose=True)
+            insert_models(conn, all_models, run_id, verbose=True)
 
             # Insert recommendation lists
             insert_recommendation_lists(
                 conn,
-                user_recommendations,
+                subscriber_recommendations,
                 user_states,
                 control_group_users,
                 run_id,
@@ -159,7 +175,7 @@ def main() -> None:
             expire_old_editorials(conn)
 
             # Activate newly used editorials
-            for model in models:
+            for model in subscriber_models:
                 if isinstance(model, EditorialRecommender):
                     activate_editorial(conn, model.editorial_id)
 

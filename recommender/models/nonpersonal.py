@@ -1,11 +1,14 @@
 """Non-personalized recommenders (popularity-based, trending, etc.)."""
 
 import os
+import warnings
 from typing import Any
 
 import joblib
 import polars as pl
+from psycopg.rows import tuple_row
 
+import recommender.pol_connector as pc
 from recommender.schemas.recommendation import Recommendation
 from recommender.schemas.recommendation_list import RecommendationList
 
@@ -31,7 +34,7 @@ class PopularityRecommender(RecommenderBase):
         self.popular_items = []
         self.popular_scores = {}
         self.user_items = {}
-        
+
         self._store_init_params(locals())
 
     def fit(self, interactions: pl.DataFrame) -> "PopularityRecommender":
@@ -56,11 +59,61 @@ class PopularityRecommender(RecommenderBase):
 
     def recommend(
         self,
-        user_id: str,
+        user_id: str | None = None,
         k: int = 10,
         candidates: list[Any] | None = None,
         filter_already_liked_items: bool = True,
     ) -> RecommendationList:
+        if user_id is None:
+            return self._recommend_anonymous(
+                None,
+                k=k,
+                candidates=candidates,
+            )
+        else:
+            return self._recommend_user(
+                user_id,
+                k=k,
+                candidates=candidates,
+                filter_already_liked_items=filter_already_liked_items,
+            )
+
+    def _recommend_anonymous(
+        self,
+        user_id: str | None = None,
+        k: int = 10,
+        candidates: list[Any] | None = None,
+    ):
+        if candidates is not None:
+            pool = sorted(
+                candidates,
+                key=lambda x: self._item_rank.get(x, len(self.popular_items)),
+            )
+        else:
+            pool = self.popular_items
+
+        out = []
+        for item in pool:
+            out.append(
+                Recommendation(
+                    item_id=item,
+                    score=self.popular_scores[item],
+                    rank=len(out) + 1,
+                    model_id=self.model_id,
+                    metadata={},
+                )
+            )
+            if len(out) == k:
+                break
+        return RecommendationList.from_list(out)
+
+    def _recommend_user(
+        self,
+        user_id: str,
+        k: int = 10,
+        candidates: list[Any] | None = None,
+        filter_already_liked_items: bool = True,
+    ):
         already_liked = (
             self.user_items.get(user_id, set()) if filter_already_liked_items else set()
         )
@@ -118,6 +171,88 @@ class PopularityRecommender(RecommenderBase):
     @property
     def category(self) -> str:
         return "popularity"
+
+
+class PoolRecommender(RecommenderBase):
+    def __init__(self, pool: list[int] | set[int] | tuple[int]):
+        super().__init__()
+        self.pool = pool
+        self.user_items: dict[Any, set] = {}
+
+    def fit(self, interactions: pl.DataFrame | None = None) -> "PoolRecommender":
+        if interactions is not None:
+            self.user_items = {
+                user_id: set(items)
+                for user_id, items in interactions.group_by("user_id")
+                .agg(pl.col("item_id"))
+                .iter_rows()
+            }
+        return self
+
+    def recommend(
+        self,
+        user_id: str | None = None,
+        k: int = 10,
+        candidates: list[Any] | None = None,
+        filter_already_liked_items: bool = True,
+    ) -> RecommendationList:
+        if candidates is not None:
+            warnings.warn(
+                "Hey, du har givet mig `candidates`, men jeg vælger at ignorere den :)"
+            )
+
+        already_liked = (
+            self.user_items.get(user_id, set()) if filter_already_liked_items else set()
+        )
+        out = []
+        for item in self.pool:
+            if item in already_liked:
+                continue
+            out.append(
+                Recommendation(
+                    item_id=item,
+                    rank=len(out) + 1,
+                    model_id=self.model_id,
+                    metadata={},
+                )
+            )
+            if len(out) == k:
+                break
+        return RecommendationList.from_list(out)
+
+    @property
+    def category(self) -> str:
+        return "analytical"
+
+    def can_recommend(self, user_id: str) -> bool:
+        return True
+
+    @classmethod
+    def from_cool_logic(cls) -> "PoolRecommender":
+        query = "SELECT article_id FROM cool_evergreens LIMIT 10"
+        with pc.connect(row_factory=tuple_row) as conn:
+            rows = conn.execute(query).fetchall()
+        pool = [row[0] for row in rows]
+        return cls(pool)
+
+    @classmethod
+    def from_food_list(cls) -> "PoolRecommender":
+        pool = [
+            10616765,
+            10733221,
+            10798255,
+            10741003,
+            10702441,
+            10798255,
+            10741003,
+            10702441,
+            10765132,
+            10729836,
+            10537562,
+            10632060,
+            10687833,
+        ]
+        return cls(pool)
 
 
 # class RandomRecommender(RecommenderBase):
