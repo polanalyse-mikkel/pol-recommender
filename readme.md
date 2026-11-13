@@ -1,5 +1,11 @@
 # Recommender
 
+Run the pipeline as
+
+```sh
+uv run python -m recommender.generate
+```
+
 ## Secrets
 
 To setup secrets, create a copy of [`.env.template`](.env.template) as `.env` from recommender root.
