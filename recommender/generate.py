@@ -45,6 +45,7 @@ def main() -> None:
     run_id = uuid.uuid4()
 
     s3_recommender_key = "s3-recommender/pool.json"
+    s3_model = S3Recommender(s3_recommender_key, randomize_order=True)
 
     subscriber_models_with_weights: list[tuple[RecommenderBase, float]] = [
         (
@@ -58,11 +59,11 @@ def main() -> None:
             0.9,
         ),
         (
-            S3Recommender(s3_recommender_key),
+            s3_model,
             0.1,
         ),
     ]
-    anonymous_model = S3Recommender(s3_recommender_key)
+    anonymous_model = s3_model
 
     start_date = (
         datetime.date.today() - datetime.timedelta(days=INTERACTION_LOOKBACK_DAYS)
