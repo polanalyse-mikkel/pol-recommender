@@ -159,7 +159,12 @@ def main() -> None:
     body = orjson.dumps(payload)
     body_legacy = orjson.dumps(payload_legacy)
 
-    all_models = subscriber_models + [anonymous_model]
+    # list of all models (deduped)
+    all_models = list(
+        {
+            model.model_id: model for model in subscriber_models + [anonymous_model]
+        }.values()
+    )
     with pc.connect() as conn:
         try:
             # End active runs and their models
