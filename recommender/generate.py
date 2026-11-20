@@ -25,7 +25,7 @@ from recommender.models import (
     EditorialRecommender,
     RecommenderBase,
 )
-from recommender.models.nonpersonal import PoolRecommender, PopularityRecommender
+from recommender.models.s3recommender import S3Recommender
 from recommender.schemas.recommendation_list import RecommendationList
 from recommender.utils import candidates, s3
 from recommender.utils.export import format_exo_export_payload, format_export_payload
@@ -44,18 +44,25 @@ def main() -> None:
     random.seed(42)
     run_id = uuid.uuid4()
 
-    subscriber_models: list[RecommenderBase] = [
-        CFRecommenderFiltered(
-            iterations=30,
-            min_user_pv=25,
-            max_user_pv=5000,
-            min_item_pv=1000,
-            max_item_pv=100_000,
+    s3_recommender_key = "s3-recommender/pool.json"
+
+    subscriber_models_with_weights: list[tuple[RecommenderBase, float]] = [
+        (
+            CFRecommenderFiltered(
+                iterations=30,
+                min_user_pv=25,
+                max_user_pv=5000,
+                min_item_pv=1000,
+                max_item_pv=100_000,
+            ),
+            0.9,
         ),
-        PoolRecommender.from_food_list(),
-        # PopularityRecommender(),
+        (
+            S3Recommender(s3_recommender_key),
+            0.1,
+        ),
     ]
-    anonymous_model = PoolRecommender.from_food_list()
+    anonymous_model = S3Recommender(s3_recommender_key)
 
     start_date = (
         datetime.date.today() - datetime.timedelta(days=INTERACTION_LOOKBACK_DAYS)
@@ -72,7 +79,9 @@ def main() -> None:
     # init pending editorial models
     editorial_recommendation_ids = list_pending_editorial_recommendations()
     for edi_id, _ in editorial_recommendation_ids:
-        subscriber_models.append(EditorialRecommender(edi_id))
+        subscriber_models_with_weights.append((EditorialRecommender(edi_id), 1.0))
+
+    subscriber_models = [model for model, _ in subscriber_models_with_weights]
 
     # fit models
     for model in subscriber_models:
@@ -93,15 +102,22 @@ def main() -> None:
     for user_id in tqdm(
         sampled_users, desc="Generating recommendations for sampled users"
     ):
-        eligible_models = [
-            model for model in subscriber_models if model.can_recommend(user_id)
+        eligible_models_with_weights = [
+            (model, weight)
+            for model, weight in subscriber_models_with_weights
+            if model.can_recommend(user_id)
         ]
-        if len(eligible_models) == 0:
+
+        if len(eligible_models_with_weights) == 0:
             subscriber_recommendations[user_id] = RecommendationList(recommendations=[])
             user_states[user_id] = {"model_ids": [], "model_names": []}
             continue
 
-        model = random.choice(eligible_models)
+        eligible_models = [model for model, _ in eligible_models_with_weights]
+        eligible_weights = [weight for _, weight in eligible_models_with_weights]
+
+        model = random.choices(eligible_models, weights=eligible_weights, k=1)[0]
+
         recs = model.recommend(
             user_id,
             k=25,
