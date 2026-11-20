@@ -155,9 +155,7 @@ def main() -> None:
         subscriber_recommendations=subscriber_recommendations,
         anonymous_recommendations=anonymous_recommendations,
     )
-    payload_legacy = format_export_payload(subscriber_recommendations)
     body = orjson.dumps(payload)
-    body_legacy = orjson.dumps(payload_legacy)
 
     # list of all models (deduped)
     all_models = list(
@@ -204,10 +202,6 @@ def main() -> None:
             # Upload to S3 for Steen
             key = f"inbox2/{run_id}.json"
             s3.upload_to_s3(key, body)
-
-            # Upload to S3 for legacy system
-            key_legacy = f"inbox/{run_id}.json"
-            s3.upload_to_s3(key_legacy, body_legacy)
 
             # Commit transaction
             conn.commit()
