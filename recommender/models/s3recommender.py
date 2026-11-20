@@ -10,11 +10,13 @@ from recommender.utils.s3 import download_from_s3
 class S3Recommender(PoolRecommender):
     base_directory = "s3-recommender"
 
-    def __init__(self, key: str, bucket: str | None = None):
+    def __init__(
+        self, key: str, bucket: str | None = None, *, randomize_order: bool = False
+    ):
         self._validate_key(key)
         payload = download_from_s3(key, bucket)
         pool = self._validate_s3_payload(payload)
-        super().__init__(pool)
+        super().__init__(pool, randomize_order=randomize_order)
 
     @classmethod
     def _validate_key(cls, key: str) -> None:

@@ -1,6 +1,7 @@
 """Non-personalized recommenders (popularity-based, trending, etc.)."""
 
 import os
+import random
 import warnings
 from typing import Any
 
@@ -174,9 +175,16 @@ class PopularityRecommender(RecommenderBase):
 
 
 class PoolRecommender(RecommenderBase):
-    def __init__(self, pool: list[int] | set[int] | tuple[int]):
+    def __init__(
+        self, pool: list[int] | set[int] | tuple[int], randomize_order: bool = False
+    ):
         super().__init__()
-        self.pool = pool
+
+        pool_list: list[int] = list(pool)
+        if randomize_order:
+            random.shuffle(pool_list)
+        self.pool: list[int] = pool_list
+
         self.user_items: dict[Any, set] = {}
 
     def fit(self, interactions: pl.DataFrame | None = None) -> "PoolRecommender":
