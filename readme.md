@@ -105,3 +105,27 @@ erDiagram
     recommendation_lists }o..o{ layer_one_recommendations : "logical via sso_id"
     recommendation_models }o..o{ layer_one_recommendations : "logical via model_name/recommendation_model"
 ```
+
+## Models
+
+### `S3Recommender`
+
+The `S3Recommender` extends `PoolRecommender`, pulling a pool of articles from an s3 bucket. By default, it uses the prod recommender bucket, and it can only use files from directory `s3-recommender/`.
+
+The article pool file is expected to follow this format
+
+```json
+[art1, art2, art3, ..., artN]
+```
+
+A pool file can be uploaded with the [_aws cli_](https://aws.amazon.com/cli/) with
+
+```sh
+aws s3 cp /path/to/pool.json s3://your-bucket-name/s3-recommender/
+```
+
+The `s3-recommender/` directory can be created in a bucket with command
+
+```sh
+aws s3api put-object --bucket your-bucket-name --key s3-recommender/
+```
